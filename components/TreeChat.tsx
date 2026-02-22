@@ -16,7 +16,7 @@ import MessageNode from './MessageNode';
 import { Layers, Plus, Cpu, Trash } from 'lucide-react';
 import { useConfirmStore } from '@/store/useConfirmStore';
 import { useApiConfigSelection } from '@/hooks/useApiConfigSelection';
-import { CustomSelect } from './MessageNode';
+import { CustomSelect } from './ui/CustomSelect';
 
 const nodeTypes = {
   messageNode: MessageNode,

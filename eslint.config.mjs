@@ -11,8 +11,16 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
-    "next-env.d.ts",
+    "next-env.d.ts"
   ]),
+  // Allow <img> in node components — they render base64 data URLs
+  // which next/image doesn't support.
+  {
+    files: ["components/node/**/*.tsx"],
+    rules: {
+      "@next/next/no-img-element": "off"
+    }
+  }
 ]);
 
 export default eslintConfig;

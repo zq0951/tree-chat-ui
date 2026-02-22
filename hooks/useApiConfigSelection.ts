@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 
 /**
@@ -17,31 +17,36 @@ export function useApiConfigSelection() {
   const lastSelectedModel = useStore(state => state.lastSelectedModel);
   const setLastConfigSelection = useStore(state => state.setLastConfigSelection);
 
-  const [selectedConfigId, setSelectedConfigId] = useState<string>('');
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  // Compute initial values from store state — no effect needed
+  const initialState = useMemo(() => {
+    if (apiConfigs.length === 0) return { configId: '', model: '' };
 
-  useEffect(() => {
-    if (apiConfigs.length > 0) {
-      const savedConfigIdx = apiConfigs.findIndex(c => c.id === lastSelectedConfigId);
-      if (savedConfigIdx !== -1) {
-        setSelectedConfigId(lastSelectedConfigId!);
-        const configModels = apiConfigs[savedConfigIdx].models;
-        if (lastSelectedModel && configModels.includes(lastSelectedModel)) {
-          setSelectedModel(lastSelectedModel);
-        } else {
-          setSelectedModel(configModels[0] || '');
-        }
-      } else if (!selectedConfigId) {
-        setSelectedConfigId(apiConfigs[0].id);
-        setSelectedModel(apiConfigs[0].models[0] || '');
-      }
-    } else {
-      setSelectedConfigId('');
-      setSelectedModel('');
+    const savedIdx = apiConfigs.findIndex(c => c.id === lastSelectedConfigId);
+    if (savedIdx !== -1) {
+      const models = apiConfigs[savedIdx].models;
+      const model = lastSelectedModel && models.includes(lastSelectedModel)
+        ? lastSelectedModel
+        : (models[0] || '');
+      return { configId: lastSelectedConfigId!, model };
     }
-  }, [apiConfigs, selectedConfigId, lastSelectedConfigId, lastSelectedModel]);
 
-  const handleConfigChange = (configId: string) => {
+    return { configId: apiConfigs[0].id, model: apiConfigs[0].models[0] || '' };
+  }, [apiConfigs, lastSelectedConfigId, lastSelectedModel]);
+
+  const [selectedConfigId, setSelectedConfigId] = useState(initialState.configId);
+  const [selectedModel, setSelectedModel] = useState(initialState.model);
+
+  // Sync when apiConfigs change externally (e.g. config deleted)
+  const actualConfigId = apiConfigs.find(c => c.id === selectedConfigId)
+    ? selectedConfigId
+    : (apiConfigs[0]?.id || '');
+
+  const effectiveConfigId = actualConfigId || '';
+  const effectiveModel = effectiveConfigId === selectedConfigId
+    ? selectedModel
+    : (apiConfigs.find(c => c.id === effectiveConfigId)?.models[0] || '');
+
+  const handleConfigChange = useCallback((configId: string) => {
     setSelectedConfigId(configId);
     const conf = apiConfigs.find(c => c.id === configId);
     if (conf && conf.models.length > 0) {
@@ -49,26 +54,27 @@ export function useApiConfigSelection() {
       setSelectedModel(firstModel);
       setLastConfigSelection(configId, firstModel);
     } else {
+      setSelectedModel('');
       setLastConfigSelection(configId, '');
     }
-  };
+  }, [apiConfigs, setLastConfigSelection]);
 
-  const handleModelChange = (model: string) => {
+  const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
-    if (selectedConfigId) {
-      setLastConfigSelection(selectedConfigId, model);
+    if (effectiveConfigId) {
+      setLastConfigSelection(effectiveConfigId, model);
     }
-  };
+  }, [effectiveConfigId, setLastConfigSelection]);
 
-  const modelOptions = selectedConfigId
-    ? apiConfigs.find(c => c.id === selectedConfigId)?.models.map(m => ({ label: m, value: m })) || []
+  const modelOptions = effectiveConfigId
+    ? apiConfigs.find(c => c.id === effectiveConfigId)?.models.map(m => ({ label: m, value: m })) || []
     : [];
 
   const configOptions = apiConfigs.map(c => ({ label: c.name, value: c.id }));
 
   return {
-    selectedConfigId,
-    selectedModel,
+    selectedConfigId: effectiveConfigId,
+    selectedModel: effectiveModel,
     configOptions,
     modelOptions,
     handleConfigChange,
