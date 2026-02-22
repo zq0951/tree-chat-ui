@@ -13,7 +13,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useStore } from '@/store/useStore';
 import MessageNode from './MessageNode';
-import { Layers, Plus, Cpu } from 'lucide-react';
+import { Layers, Plus, Cpu, Trash } from 'lucide-react';
+import { useConfirmStore } from '@/store/useConfirmStore';
 
 const nodeTypes = {
   messageNode: MessageNode,
@@ -27,7 +28,21 @@ function TreeChatFlow() {
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
   const nodes = activeTab?.nodes || [];
   const edges = activeTab?.edges || [];
-  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes, apiConfigs, lastSelectedConfigId, lastSelectedModel, setLastConfigSelection } = state;
+  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes, deleteNodes, apiConfigs, lastSelectedConfigId, lastSelectedModel, setLastConfigSelection } = state;
+
+  const confirm = useConfirmStore(state => state.confirm);
+
+  const handleDeleteSelected = async () => {
+    const ok = await confirm({
+      title: 'Delete Selected Nodes',
+      message: `Are you sure you want to delete the ${selectedNodeIds.length} selected nodes? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel'
+    });
+    if (ok) {
+      deleteNodes(selectedNodeIds);
+    }
+  };
 
   const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
 
@@ -71,7 +86,7 @@ function TreeChatFlow() {
   useEffect(() => {
     if (hasHydrated && state.tabs.length === 0) {
       createTab('New Chat');
-      const rootId = addMessage(null, 'system', 'You are a helpful assistant who helps users with in-depth reasoning. We will explore different branches of thought. Reply in Chinese.', 'system');
+      const rootId = addMessage(null, 'system', 'You are a helpful assistant. Please interact using the language the user sends for the first time.', 'system');
       // Automatically generate a user node for immediate interaction
       addMessage(rootId, 'user', '');
     }
@@ -182,6 +197,16 @@ function TreeChatFlow() {
               >
                 <Layers className="w-4 h-4" />
                 <span>AI Merge Docs</span>
+              </button>
+
+              <div className="w-px h-6 bg-indigo-500/30"></div>
+
+              <button
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-2 px-4 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-200 border border-red-500/30 rounded-lg text-sm font-medium transition-colors cursor-pointer shadow-lg shadow-red-500/10 whitespace-nowrap"
+              >
+                <Trash className="w-4 h-4" />
+                <span>Delete</span>
               </button>
             </div>
           </div>

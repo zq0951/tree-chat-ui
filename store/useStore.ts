@@ -46,6 +46,7 @@ export type AppState = {
   addMessageImages: (id: string, imageUrls: string[]) => void;
   removeMessageImage: (id: string, index: number) => void;
   deleteMessageNode: (id: string) => void;
+  deleteNodes: (ids: string[]) => void;
   mergeNodes: (nodeIds: string[], configId?: string, model?: string) => string;
   getConversationPath: (nodeId: string) => { role: string; content: string; imageUrls?: string[] }[];
   generateAIResponse: (userNodeId: string, configId?: string, model?: string) => Promise<void>;
@@ -60,25 +61,30 @@ export type AppState = {
   deleteApiConfig: (id: string) => void;
 };
 
-const HORIZONTAL_SPACING = 480;
+const HORIZONTAL_SPACING = 580;
 const VERTICAL_MARGIN = 120;
 
-import { PersistStorage, StorageValue } from 'zustand/middleware';
+import { PersistStorage, StorageValue, createJSONStorage } from 'zustand/middleware';
 
 let writeTimeout: ReturnType<typeof setTimeout>;
 
+// Support both SSR and robust reading/writing.
 const customPersistStorage: PersistStorage<AppState> = {
   getItem: async (name: string) => {
-    const str = await get(name);
-    if (!str) return null;
+    if (typeof window === 'undefined') return null; // Safe for SSR
     try {
-      return JSON.parse(str);
+      const value = await get(name);
+      if (!value) return null;
+      // If the value was saved directly as an object without stringifying (e.g. older versions), return it directly.
+      if (typeof value === 'object') return value as StorageValue<AppState>;
+      return JSON.parse(value);
     } catch (e) {
       console.error('Failed to parse state from IndexedDB', e);
-      return null;
+      return null; // Fallback to empty if corrupted
     }
   },
   setItem: async (name: string, value: StorageValue<AppState>) => {
+    if (typeof window === 'undefined') return;
     if (writeTimeout) clearTimeout(writeTimeout);
     writeTimeout = setTimeout(() => {
       try {
@@ -87,13 +93,19 @@ const customPersistStorage: PersistStorage<AppState> = {
       } catch (e) {
         console.error('Failed to save state to IndexedDB', e);
       }
-    }, 500);
+    }, 300); // Shorter debounce to reduce data loss on quick refresh
   },
   removeItem: async (name: string) => {
+    if (typeof window === 'undefined') return;
     if (writeTimeout) clearTimeout(writeTimeout);
-    await del(name);
+    try {
+      await del(name);
+    } catch (e) {
+      console.error('Failed to remove state from IndexedDB', e);
+    }
   },
 };
+
 const defaultTab = (): Tab => ({
   id: uuidv4(),
   name: 'New Chat',
@@ -215,7 +227,7 @@ export const useStore = create<AppState>()(
           id,
           position: { x: newX, y: newY },
           type: 'messageNode',
-          style: { width: 440 },
+          style: { width: 540 },
           data: {
             id,
             role,
@@ -288,6 +300,12 @@ export const useStore = create<AppState>()(
           edges: tab.edges.filter((e) => e.source !== id && e.target !== id)
         }));
       },
+      deleteNodes: (ids: string[]) => {
+        updateActiveTab(get, set, (tab) => ({
+          nodes: tab.nodes.filter((n) => !ids.includes(n.id)),
+          edges: tab.edges.filter((e) => !ids.includes(e.source) && !ids.includes(e.target))
+        }));
+      },
       mergeNodes: (nodeIds: string[], configId?: string, model?: string) => {
         const id = uuidv4();
         const activeTab = get().tabs.find(t => t.id === get().activeTabId);
@@ -325,7 +343,7 @@ export const useStore = create<AppState>()(
           id,
           position: { x: newX, y: newY },
           type: 'messageNode',
-          style: { width: 440 },
+          style: { width: 540 },
           data: {
             id,
             role: 'system',

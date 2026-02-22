@@ -205,7 +205,7 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
   return (
     <>
       <NodeResizeControl
-        minWidth={360}
+        minWidth={480}
         minHeight={250}
         position="bottom-right"
         style={{ background: 'transparent', border: 'none', right: 5, bottom: 5 }}
@@ -218,7 +218,7 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
         </div>
       </NodeResizeControl>
 
-      <div className={`w-full h-full min-w-[360px] min-h-[250px] rounded-2xl border ${bgColor} shadow-lg flex flex-col relative group`}>
+      <div className={`w-full h-full min-w-[480px] min-h-[250px] rounded-2xl border ${bgColor} shadow-lg flex flex-col relative group`}>
         <style>{`
         .custom-scroller::-webkit-scrollbar {
           width: 5px;
