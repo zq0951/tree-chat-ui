@@ -28,9 +28,7 @@ export async function POST(req: Request) {
         throw new Error(`Unsupported API provider: ${provider}`);
       }
     } else {
-      // Fallback to system env if no config provided (backwards compatibility)
-      const { google } = await import('@ai-sdk/google');
-      selectedModel = google(model);
+      throw new Error('API key not configured. Please click the ⚙️ API Settings button in the top right to add your API key.');
     }
 
     let streamController: ReadableStreamDefaultController | null = null;

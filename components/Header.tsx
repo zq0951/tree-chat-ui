@@ -41,11 +41,12 @@ export default function Header() {
   const handleExport = () => {
     const activeTab = state.tabs.find(t => t.id === state.activeTabId);
     if (!activeTab) return;
-    const { nodes, edges } = activeTab;
+    const { nodes, edges, name } = activeTab;
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ nodes, edges }, null, 2));
+    const safeName = (name || 'tree-chat-export').replace(/[^a-zA-Z0-9_\-\u4e00-\u9fff]/g, '_');
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "tree-chat-export.json");
+    downloadAnchorNode.setAttribute("download", `${safeName}.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();

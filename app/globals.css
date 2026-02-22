@@ -23,7 +23,22 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans, Arial, Helvetica, sans-serif);
+}
+
+/* Custom scroller styles (used by MessageNode, CustomSelect, ApiConfigModal) */
+.custom-scroller::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroller::-webkit-scrollbar-thumb {
+  background-color: #52525b;
+  border-radius: 10px;
+}
+.custom-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: #71717a;
 }
 
 /* Custom scrollbars for textareas globally */
