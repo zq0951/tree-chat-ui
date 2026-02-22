@@ -1,5 +1,7 @@
 # TreeChat (Alpha版)
 
+🌐 **[在线体验 (Live Demo)](https://tree-chat-ui.vercel.app/)** | ⚡ **由 Vercel 驱动持续集成发布**
+
 TreeChat 是一个由 Google Gemini、OpenAI 等多模型（通过 Vercel AI SDK）驱动的试验性、基于节点的对话界面软件。它打破了传统线性的聊天机器人的死板模式，允许用户在一个深度分支、多路径的精美 React Flow 可视化画布中，自由地探索交互、多重推理过程和头脑风暴网络。
 
 ## 核心特性
