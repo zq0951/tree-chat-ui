@@ -1,18 +1,18 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import {
   ReactFlow,
   MiniMap,
   Controls,
   Background,
-  useReactFlow,
   ReactFlowProvider,
   BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '@/store/useStore';
 import MessageNode from './MessageNode';
+import { Layers, Plus, Cpu } from 'lucide-react';
 
 const nodeTypes = {
   messageNode: MessageNode,
@@ -23,15 +23,19 @@ function TreeChatFlow() {
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
   const nodes = activeTab?.nodes || [];
   const edges = activeTab?.edges || [];
-  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab } = state;
+  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes } = state;
 
-  const { zoomTo, setCenter } = useReactFlow();
+  const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
 
   const [hasHydrated, setHasHydrated] = React.useState(false);
 
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
     useStore.persist.onFinishHydration(() => setHasHydrated(true));
-    setHasHydrated(useStore.persist.hasHydrated());
+    if (useStore.persist.hasHydrated()) {
+      timeoutId = setTimeout(() => setHasHydrated(true), 0);
+    }
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Initialize with a root node
@@ -63,7 +67,7 @@ function TreeChatFlow() {
         nodeTypes={nodeTypes}
         fitView
         snapToGrid={true}
-        snapGrid={[20, 20]}
+        snapGrid={[10, 10]}
         className="treechat-flow"
         minZoom={0.1}
         maxZoom={4}
@@ -73,7 +77,7 @@ function TreeChatFlow() {
           variant={BackgroundVariant.Dots}
           gap={20}
           size={2}
-          color="#333333"
+          color="rgba(255,255,255,0.06)"
         />
         <Controls showInteractive={false} />
         <MiniMap
@@ -86,18 +90,31 @@ function TreeChatFlow() {
           className="rounded-lg shadow-2xl"
         />
 
-        {nodes.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-            <button
-              onClick={() => {
-                const rootId = addMessage(null, 'system', 'You are a helpful assistant who helps users with in-depth reasoning. We will explore different branches of thought. Reply in Chinese.', 'system');
-                addMessage(rootId, 'user', '');
-              }}
-              className="pointer-events-auto flex items-center gap-2 px-6 py-3 bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-xl font-medium tracking-wide shadow-2xl transition-all hover:scale-105 cursor-pointer backdrop-blur-sm border border-white/10"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-              初始化系统节点 (Initialize Chat)
-            </button>
+
+
+        <div className="absolute top-4 left-4 z-50 flex gap-2">
+          <button
+            onClick={() => addMessage(null, 'system', '')}
+            className="flex items-center gap-2 px-3 py-2 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/30 text-emerald-300 rounded-lg backdrop-blur-md shadow-lg transition-all cursor-pointer text-xs"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            <span className="flex items-center gap-1"><Plus className="w-3 h-3" /> New System Prompt Card</span>
+          </button>
+        </div>
+
+        {selectedNodeIds.length > 1 && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 fade-in duration-200">
+            <div className="flex items-center gap-4 px-6 py-3 bg-indigo-950/80 backdrop-blur-md rounded-2xl border border-indigo-500/30 shadow-2xl">
+              <span className="text-sm text-indigo-200 font-medium">{selectedNodeIds.length} Prompt Nodes Selected</span>
+              <div className="w-px h-6 bg-indigo-500/30"></div>
+              <button
+                onClick={() => mergeNodes(selectedNodeIds)}
+                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer shadow-lg shadow-indigo-500/20"
+              >
+                <Layers className="w-4 h-4" />
+                <span>Merge into single User Input</span>
+              </button>
+            </div>
           </div>
         )}
       </ReactFlow>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import { get, set as idbSet, del } from 'idb-keyval';
 import {
   Connection,
@@ -16,7 +16,7 @@ import {
   MarkerType,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
-import { MessageNodeData, MessageRole } from '@/lib/types';
+import { MessageNodeData, MessageRole, ApiConfig } from '@/lib/types';
 
 export type AppNode = Node<MessageNodeData, 'messageNode'>;
 
@@ -32,6 +32,7 @@ export type AppState = {
   activeTabId: string;
 
   createTab: (name?: string) => string;
+  importTab: (name: string, nodes: AppNode[], edges: Edge[]) => string;
   switchTab: (id: string) => void;
   deleteTab: (id: string) => void;
   renameTab: (id: string, name: string) => void;
@@ -39,30 +40,60 @@ export type AppState = {
   onNodesChange: OnNodesChange<AppNode>;
   onEdgesChange: OnEdgesChange<Edge>;
   onConnect: OnConnect;
-  addMessage: (parentId: string | null, role: MessageRole, content: string, model?: string) => string;
+  addMessage: (parentId: string | null, role: MessageRole, content: string, model?: string, configId?: string) => string;
   updateMessageNode: (id: string, newContent: string) => void;
+  updateMessageError: (id: string, error?: string) => void;
   addMessageImages: (id: string, imageUrls: string[]) => void;
   removeMessageImage: (id: string, index: number) => void;
   deleteMessageNode: (id: string) => void;
+  mergeNodes: (nodeIds: string[]) => string;
   getConversationPath: (nodeId: string) => { role: string; content: string; imageUrls?: string[] }[];
-  generateAIResponse: (userNodeId: string) => Promise<void>;
+  generateAIResponse: (userNodeId: string, configId?: string, model?: string) => Promise<void>;
+
+  // API Configs
+  apiConfigs: ApiConfig[];
+  lastSelectedConfigId?: string;
+  lastSelectedModel?: string;
+  setLastConfigSelection: (configId: string, model: string) => void;
+  addApiConfig: (config: Omit<ApiConfig, 'id'>) => string;
+  updateApiConfig: (id: string, config: Omit<ApiConfig, 'id'>) => void;
+  deleteApiConfig: (id: string) => void;
 };
 
 const HORIZONTAL_SPACING = 480;
 const VERTICAL_MARGIN = 120;
 
-const storage: StateStorage = {
-  getItem: async (name: string): Promise<string | null> => {
-    return (await get(name)) || null;
+import { PersistStorage, StorageValue } from 'zustand/middleware';
+
+let writeTimeout: ReturnType<typeof setTimeout>;
+
+const customPersistStorage: PersistStorage<AppState> = {
+  getItem: async (name: string) => {
+    const str = await get(name);
+    if (!str) return null;
+    try {
+      return JSON.parse(str);
+    } catch (e) {
+      console.error('Failed to parse state from IndexedDB', e);
+      return null;
+    }
   },
-  setItem: async (name: string, value: string): Promise<void> => {
-    await idbSet(name, value);
+  setItem: async (name: string, value: StorageValue<AppState>) => {
+    if (writeTimeout) clearTimeout(writeTimeout);
+    writeTimeout = setTimeout(() => {
+      try {
+        const serialized = JSON.stringify(value);
+        idbSet(name, serialized);
+      } catch (e) {
+        console.error('Failed to save state to IndexedDB', e);
+      }
+    }, 500);
   },
-  removeItem: async (name: string): Promise<void> => {
+  removeItem: async (name: string) => {
+    if (writeTimeout) clearTimeout(writeTimeout);
     await del(name);
   },
 };
-
 const defaultTab = (): Tab => ({
   id: uuidv4(),
   name: 'New Chat',
@@ -70,7 +101,7 @@ const defaultTab = (): Tab => ({
   edges: []
 });
 
-const updateActiveTab = (get: any, set: any, updater: (tab: Tab) => Partial<Tab>) => {
+const updateActiveTab = (get: () => AppState, set: (updater: (state: AppState) => Partial<AppState> | AppState) => void, updater: (tab: Tab) => Partial<Tab>) => {
   set((state: AppState) => {
     const tabIndex = state.tabs.findIndex(t => t.id === state.activeTabId);
     if (tabIndex === -1) return state;
@@ -85,10 +116,23 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       tabs: [],
       activeTabId: '',
+      apiConfigs: [],
+      lastSelectedConfigId: undefined,
+      lastSelectedModel: undefined,
+
+      setLastConfigSelection: (configId, model) => set({ lastSelectedConfigId: configId, lastSelectedModel: model }),
 
       createTab: (name?: string) => {
         const newTab = defaultTab();
         if (name) newTab.name = name;
+        set((state) => ({
+          tabs: [...state.tabs, newTab],
+          activeTabId: newTab.id
+        }));
+        return newTab.id;
+      },
+      importTab: (name: string, nodes: AppNode[], edges: Edge[]) => {
+        const newTab = { id: uuidv4(), name, nodes, edges };
         set((state) => ({
           tabs: [...state.tabs, newTab],
           activeTabId: newTab.id
@@ -136,7 +180,7 @@ export const useStore = create<AppState>()(
           }, tab.edges),
         }));
       },
-      addMessage: (parentId: string | null, role: MessageRole, content: string, model?: string) => {
+      addMessage: (parentId: string | null, role: MessageRole, content: string, model?: string, configId?: string) => {
         const id = uuidv4();
         const activeTab = get().tabs.find(t => t.id === get().activeTabId);
         if (!activeTab) return id;
@@ -150,14 +194,21 @@ export const useStore = create<AppState>()(
           if (parentNode) {
             const existingChildrenEdges = edges.filter((e) => e.source === parentId);
             const parentHeight = parentNode.measured?.height || 250;
-            newY = parentNode.position.y + parentHeight + VERTICAL_MARGIN;
+            newY = Math.round((parentNode.position.y + parentHeight + VERTICAL_MARGIN) / 10) * 10;
 
             if (existingChildrenEdges.length === 0) {
-              newX = parentNode.position.x;
+              newX = Math.round(parentNode.position.x / 10) * 10;
             } else {
-              newX = parentNode.position.x + HORIZONTAL_SPACING * existingChildrenEdges.length;
+              newX = Math.round((parentNode.position.x + HORIZONTAL_SPACING * existingChildrenEdges.length) / 10) * 10;
             }
           }
+        } else {
+          // It's a brand new floating node, offset slightly to prevent stacking
+          // Check if there are existing nodes to avoid collision
+          newX = 100 + (nodes.length % 5) * 50;
+          newY = 100 + (nodes.length % 5) * 50;
+          newX = Math.round(newX / 10) * 10;
+          newY = Math.round(newY / 10) * 10;
         }
 
         const newNode: AppNode = {
@@ -170,6 +221,7 @@ export const useStore = create<AppState>()(
             role,
             content,
             model,
+            configId,
             timestamp: Date.now(),
           },
           dragHandle: '.custom-drag-handle',
@@ -203,6 +255,11 @@ export const useStore = create<AppState>()(
           nodes: tab.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, content: newContent } } : node)
         }));
       },
+      updateMessageError: (id: string, error?: string) => {
+        updateActiveTab(get, set, (tab) => ({
+          nodes: tab.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, error } } : node)
+        }));
+      },
       addMessageImages: (id: string, newImageUrls: string[]) => {
         updateActiveTab(get, set, (tab) => ({
           nodes: tab.nodes.map((node) => {
@@ -231,30 +288,127 @@ export const useStore = create<AppState>()(
           edges: tab.edges.filter((e) => e.source !== id && e.target !== id)
         }));
       },
+      mergeNodes: (nodeIds: string[]) => {
+        const id = uuidv4();
+        const activeTab = get().tabs.find(t => t.id === get().activeTabId);
+        if (!activeTab) return id;
+        const { nodes, edges } = activeTab;
+
+        const selectedNodes = nodes.filter(n => nodeIds.includes(n.id));
+        if (selectedNodes.length === 0) return id;
+
+        // Sort by position Y, then X to roughly maintain reading order
+        selectedNodes.sort((a, b) => {
+          if (a.position.y === b.position.y) return a.position.x - b.position.x;
+          return a.position.y - b.position.y;
+        });
+
+        // Combine text contents
+        const combinedContent = selectedNodes
+          .map(n => n.data.content)
+          .filter(c => c && c.trim().length > 0)
+          .join('\n\n---\n\n');
+
+        // Combine images
+        const combinedImages = Array.from(new Set(
+          selectedNodes.flatMap(n => n.data.imageUrls || [])
+        ));
+
+        // Position new node below the selected nodes, horizontally centered
+        const avgX = selectedNodes.reduce((sum, n) => sum + n.position.x, 0) / selectedNodes.length;
+        const lowestNode = selectedNodes.reduce((prev, curr) => (prev.position.y > curr.position.y ? prev : curr));
+
+        const newX = Math.round(avgX / 10) * 10;
+        const newY = Math.round((lowestNode.position.y + (lowestNode.measured?.height || 250) + VERTICAL_MARGIN) / 10) * 10;
+
+        const newNode: AppNode = {
+          id,
+          position: { x: newX, y: newY },
+          type: 'messageNode',
+          style: { width: 440 },
+          data: {
+            id,
+            role: 'user',
+            content: combinedContent,
+            imageUrls: combinedImages,
+            timestamp: Date.now(),
+          },
+          dragHandle: '.custom-drag-handle',
+        };
+
+        const newEdges: Edge[] = selectedNodes.map(n => ({
+          id: `e-${n.id}-${id}`,
+          source: n.id,
+          target: id,
+          type: 'default',
+          animated: false,
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#a1a1aa', width: 14, height: 14 },
+          style: { strokeWidth: 3, stroke: '#a1a1aa' }
+        }));
+
+        updateActiveTab(get, set, () => ({
+          nodes: [...nodes.map(n => ({ ...n, selected: false })), { ...newNode, selected: true }],
+          edges: [...edges, ...newEdges]
+        }));
+
+        return id;
+      },
       getConversationPath: (nodeId: string) => {
         const activeTab = get().tabs.find(t => t.id === get().activeTabId);
         if (!activeTab) return [];
         const { nodes, edges } = activeTab;
-        const path: AppNode[] = [];
-        let currentId: string | null = nodeId;
-        const visited = new Set<string>();
 
-        while (currentId && !visited.has(currentId)) {
+        const pathNodes: AppNode[] = [];
+        const visited = new Set<string>();
+        const queue = [nodeId];
+
+        while (queue.length > 0) {
+          const currentId = queue.shift();
+          if (!currentId || visited.has(currentId)) continue;
           visited.add(currentId);
+
           const node = nodes.find((n) => n.id === currentId);
-          if (node) path.unshift(node);
-          const incomingEdge = edges.find((e) => e.target === currentId);
-          currentId = incomingEdge ? incomingEdge.source : null;
+          if (node) pathNodes.push(node);
+
+          const incomingEdges = edges.filter((e) => e.target === currentId);
+          for (const edge of incomingEdges) {
+            queue.push(edge.source);
+          }
         }
 
-        return path.map((n) => ({
-          role: n.data.role,
-          content: n.data.content,
-          imageUrls: n.data.imageUrls
-        }));
+        pathNodes.sort((a, b) => (a.data.timestamp || 0) - (b.data.timestamp || 0));
+
+        const systemNodes = pathNodes.filter((n) => n.data.role === 'system');
+        const otherNodes = pathNodes.filter((n) => n.data.role !== 'system');
+
+        const messages: { role: string; content: string; imageUrls?: string[] }[] = [];
+
+        if (systemNodes.length > 0) {
+          const combinedSystemContent = systemNodes
+            .map((n) => n.data.content)
+            .filter((c) => c && c.trim().length > 0)
+            .join('\n\n---\n\n');
+
+          if (combinedSystemContent) {
+            messages.push({
+              role: 'system',
+              content: combinedSystemContent
+            });
+          }
+        }
+
+        otherNodes.forEach((n) => {
+          messages.push({
+            role: n.data.role as string,
+            content: n.data.content as string,
+            imageUrls: n.data.imageUrls as string[] | undefined
+          });
+        });
+
+        return messages;
       },
-      generateAIResponse: async (userNodeId: string) => {
-        const { getConversationPath, addMessage, updateMessageNode } = get();
+      generateAIResponse: async (userNodeId: string, configId?: string, model?: string) => {
+        const { getConversationPath, addMessage, updateMessageNode, updateMessageError, apiConfigs } = get();
         const messages = getConversationPath(userNodeId);
 
         const validMessages = messages.filter(m => m.content.trim().length > 0 || (m.imageUrls && m.imageUrls.length > 0));
@@ -272,12 +426,24 @@ export const useStore = create<AppState>()(
           return { role: m.role, content: m.content };
         });
 
-        const assistantNodeId = addMessage(userNodeId, 'assistant', '', 'gemini-3-flash-preview');
+        const targetModel = model || 'gemini-3-flash-preview';
+        const assistantNodeId = addMessage(userNodeId, 'assistant', '', targetModel, configId);
+        updateMessageError(assistantNodeId, undefined);
+
+        const targetConfig = apiConfigs.find(c => c.id === configId);
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (targetConfig) {
+          headers['X-Api-Key'] = targetConfig.apiKey;
+          headers['X-Provider'] = targetConfig.provider;
+          if (targetConfig.baseUrl) headers['X-Base-Url'] = targetConfig.baseUrl;
+          headers['X-Model'] = targetModel;
+        }
 
         try {
           const response = await fetch('/api/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ messages: formattedMessages }),
           });
 
@@ -301,14 +467,44 @@ export const useStore = create<AppState>()(
               updateMessageNode(assistantNodeId, fullContent);
             }
           }
-        } catch (error: any) {
-          updateMessageNode(assistantNodeId, `[Error generating AI response: ${error.message}]`);
+
+          if (fullContent.includes('[API Error]:')) {
+            const parts = fullContent.split('[API Error]:');
+            const actualContent = parts[0].trim();
+            const errorMessage = parts[1].trim();
+
+            // Revert the node's content to string without the error marker
+            updateMessageNode(assistantNodeId, actualContent);
+            throw new Error(errorMessage);
+          }
+
+          addMessage(assistantNodeId, 'user', '');
+
+        } catch (error: unknown) {
+          const errMsg = error instanceof Error ? error.message : "Unknown error";
+          updateMessageError(assistantNodeId, errMsg);
         }
+      },
+
+      addApiConfig: (config) => {
+        const id = uuidv4();
+        set((state) => ({ apiConfigs: [...state.apiConfigs, { ...config, id }] }));
+        return id;
+      },
+      updateApiConfig: (id, newConfig) => {
+        set((state) => ({
+          apiConfigs: state.apiConfigs.map(c => c.id === id ? { ...newConfig, id } : c)
+        }));
+      },
+      deleteApiConfig: (id) => {
+        set((state) => ({
+          apiConfigs: state.apiConfigs.filter(c => c.id !== id)
+        }));
       }
     }),
     {
       name: 'treechat-storage',
-      storage: createJSONStorage(() => storage),
+      storage: customPersistStorage,
     }
   )
 );
