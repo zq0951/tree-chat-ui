@@ -64,9 +64,31 @@ export type AppState = {
 const HORIZONTAL_SPACING = 580;
 const VERTICAL_MARGIN = 120;
 
-import { PersistStorage, StorageValue, createJSONStorage } from 'zustand/middleware';
+import { PersistStorage, StorageValue } from 'zustand/middleware';
 
 let writeTimeout: ReturnType<typeof setTimeout>;
+let pendingWrite: { name: string; serialized: string } | null = null;
+
+// Flush pending writes immediately (e.g. before page unload)
+async function flushPendingWrite() {
+  if (pendingWrite) {
+    const { name, serialized } = pendingWrite;
+    pendingWrite = null;
+    if (writeTimeout) clearTimeout(writeTimeout);
+    try {
+      await idbSet(name, serialized);
+    } catch (e) {
+      console.error('Failed to flush state to IndexedDB', e);
+    }
+  }
+}
+
+// Register beforeunload handler to reduce data loss on page close
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushPendingWrite();
+  });
+}
 
 // Support both SSR and robust reading/writing.
 const customPersistStorage: PersistStorage<AppState> = {
@@ -86,18 +108,25 @@ const customPersistStorage: PersistStorage<AppState> = {
   setItem: async (name: string, value: StorageValue<AppState>) => {
     if (typeof window === 'undefined') return;
     if (writeTimeout) clearTimeout(writeTimeout);
-    writeTimeout = setTimeout(() => {
-      try {
-        const serialized = JSON.stringify(value);
-        idbSet(name, serialized);
-      } catch (e) {
-        console.error('Failed to save state to IndexedDB', e);
-      }
-    }, 300); // Shorter debounce to reduce data loss on quick refresh
+    try {
+      const serialized = JSON.stringify(value);
+      pendingWrite = { name, serialized };
+      writeTimeout = setTimeout(async () => {
+        pendingWrite = null;
+        try {
+          await idbSet(name, serialized);
+        } catch (e) {
+          console.error('Failed to save state to IndexedDB', e);
+        }
+      }, 300);
+    } catch (e) {
+      console.error('Failed to serialize state for IndexedDB', e);
+    }
   },
   removeItem: async (name: string) => {
     if (typeof window === 'undefined') return;
     if (writeTimeout) clearTimeout(writeTimeout);
+    pendingWrite = null;
     try {
       await del(name);
     } catch (e) {

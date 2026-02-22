@@ -5,7 +5,7 @@ import { Network, Edit, Trash, Bot, Cpu, ImageIcon, X, FileText, Copy, Check, Ch
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AppNode, useStore } from '@/store/useStore';
-import { ApiConfig } from '@/lib/types';
+import { useApiConfigSelection } from '@/hooks/useApiConfigSelection';
 
 export function CustomSelect({
   value,
@@ -81,9 +81,6 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
   const addMessageImages = useStore(state => state.addMessageImages);
   const removeMessageImage = useStore(state => state.removeMessageImage);
   const apiConfigs = useStore(state => state.apiConfigs);
-  const lastSelectedConfigId = useStore(state => state.lastSelectedConfigId);
-  const lastSelectedModel = useStore(state => state.lastSelectedModel);
-  const setLastConfigSelection = useStore(state => state.setLastConfigSelection);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const isUser = data.role === 'user';
@@ -93,32 +90,12 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
   const [copied, setCopied] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<string | null>(null);
 
-  // Default selection for generation
-  const [selectedConfigId, setSelectedConfigId] = React.useState<string>('');
-  const [selectedModel, setSelectedModel] = React.useState<string>('gemini-3-flash-preview');
-
-  // Auto-select based on history or first available config
-  React.useEffect(() => {
-    if (apiConfigs.length > 0) {
-      const savedConfigIdx = apiConfigs.findIndex(c => c.id === lastSelectedConfigId);
-      if (savedConfigIdx !== -1) {
-        setSelectedConfigId(lastSelectedConfigId!);
-        const configModels = apiConfigs[savedConfigIdx].models;
-        if (lastSelectedModel && configModels.includes(lastSelectedModel)) {
-          setSelectedModel(lastSelectedModel);
-        } else {
-          setSelectedModel(configModels[0] || '');
-        }
-      } else if (!selectedConfigId) {
-        // Fallback to first if history is invalid
-        setSelectedConfigId(apiConfigs[0].id);
-        setSelectedModel(apiConfigs[0].models[0]);
-      }
-    } else {
-      setSelectedConfigId('');
-      setSelectedModel('');
-    }
-  }, [apiConfigs, selectedConfigId, lastSelectedConfigId, lastSelectedModel]);
+  // Shared API config selection logic
+  const {
+    selectedConfigId, selectedModel,
+    configOptions, modelOptions,
+    handleConfigChange, handleModelChange,
+  } = useApiConfigSelection();
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -219,21 +196,6 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
       </NodeResizeControl>
 
       <div className={`w-full h-full min-w-[480px] min-h-[250px] rounded-2xl border ${bgColor} shadow-lg flex flex-col relative group`}>
-        <style>{`
-        .custom-scroller::-webkit-scrollbar {
-          width: 5px;
-        }
-        .custom-scroller::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scroller::-webkit-scrollbar-thumb {
-          background-color: #52525b;
-          border-radius: 10px;
-        }
-        .custom-scroller::-webkit-scrollbar-thumb:hover {
-          background-color: #71717a;
-        }
-      `}</style>
 
         <Handle type="target" position={Position.Top} className="!top-[-2px] !w-4 !h-4 !bg-[#0a0a0a] !border-2 !border-zinc-500 hover:!border-indigo-400 !transition-colors z-10" />
 
@@ -360,33 +322,16 @@ function MessageNode({ data, id }: NodeProps<AppNode>) {
                 <CustomSelect
                   value={selectedConfigId}
                   placeholder="Select API Config"
-                  options={apiConfigs.map(c => ({ label: c.name, value: c.id }))}
-                  onChange={cid => {
-                    setSelectedConfigId(cid);
-                    const conf = apiConfigs.find(c => c.id === cid);
-                    if (conf && conf.models.length > 0) {
-                      const firstModel = conf.models[0];
-                      setSelectedModel(firstModel);
-                      setLastConfigSelection(cid, firstModel);
-                    } else {
-                      setLastConfigSelection(cid, '');
-                    }
-                  }}
+                  options={configOptions}
+                  onChange={handleConfigChange}
                 />
 
                 <CustomSelect
                   value={selectedModel}
                   placeholder="Select Model"
                   disabled={!selectedConfigId}
-                  options={
-                    selectedConfigId
-                      ? apiConfigs.find(c => c.id === selectedConfigId)?.models.map(m => ({ label: m, value: m })) || []
-                      : []
-                  }
-                  onChange={model => {
-                    setSelectedModel(model);
-                    if (selectedConfigId) setLastConfigSelection(selectedConfigId, model);
-                  }}
+                  options={modelOptions}
+                  onChange={handleModelChange}
                 />
               </div>
 

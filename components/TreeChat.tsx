@@ -15,22 +15,40 @@ import { useStore } from '@/store/useStore';
 import MessageNode from './MessageNode';
 import { Layers, Plus, Cpu, Trash } from 'lucide-react';
 import { useConfirmStore } from '@/store/useConfirmStore';
+import { useApiConfigSelection } from '@/hooks/useApiConfigSelection';
+import { CustomSelect } from './MessageNode';
 
 const nodeTypes = {
   messageNode: MessageNode,
 };
 
-// Update store references at type definition as well
-import { CustomSelect } from './MessageNode';
-
 function TreeChatFlow() {
-  const state = useStore();
-  const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+  // Reactive state
+  const activeTabId = useStore(state => state.activeTabId);
+  const tabs = useStore(state => state.tabs);
+  const activeTab = tabs.find(t => t.id === activeTabId);
   const nodes = activeTab?.nodes || [];
   const edges = activeTab?.edges || [];
-  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes, deleteNodes, apiConfigs, lastSelectedConfigId, lastSelectedModel, setLastConfigSelection } = state;
+
+  // Stable action references (don't cause re-renders)
+  const onNodesChange = useStore(state => state.onNodesChange);
+  const onEdgesChange = useStore(state => state.onEdgesChange);
+  const onConnect = useStore(state => state.onConnect);
+  const addMessage = useStore(state => state.addMessage);
+  const createTab = useStore(state => state.createTab);
+  const mergeNodes = useStore(state => state.mergeNodes);
+  const deleteNodes = useStore(state => state.deleteNodes);
 
   const confirm = useConfirmStore(state => state.confirm);
+
+  // Shared API config selection logic
+  const {
+    selectedConfigId, selectedModel,
+    configOptions, modelOptions,
+    handleConfigChange, handleModelChange,
+  } = useApiConfigSelection();
+
+  const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
 
   const handleDeleteSelected = async () => {
     const ok = await confirm({
@@ -44,34 +62,7 @@ function TreeChatFlow() {
     }
   };
 
-  const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
-
   const [hasHydrated, setHasHydrated] = React.useState(false);
-
-  // Local state for merge config
-  const [selectedConfigId, setSelectedConfigId] = React.useState<string>('');
-  const [selectedModel, setSelectedModel] = React.useState<string>('');
-
-  React.useEffect(() => {
-    if (apiConfigs.length > 0) {
-      const savedConfigIdx = apiConfigs.findIndex(c => c.id === lastSelectedConfigId);
-      if (savedConfigIdx !== -1) {
-        setSelectedConfigId(lastSelectedConfigId!);
-        const configModels = apiConfigs[savedConfigIdx].models;
-        if (lastSelectedModel && configModels.includes(lastSelectedModel)) {
-          setSelectedModel(lastSelectedModel);
-        } else {
-          setSelectedModel(configModels[0] || '');
-        }
-      } else if (!selectedConfigId) {
-        setSelectedConfigId(apiConfigs[0].id);
-        setSelectedModel(apiConfigs[0].models[0]);
-      }
-    } else {
-      setSelectedConfigId('');
-      setSelectedModel('');
-    }
-  }, [apiConfigs, selectedConfigId, lastSelectedConfigId, lastSelectedModel]);
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -84,15 +75,14 @@ function TreeChatFlow() {
 
   // Initialize with a root node
   useEffect(() => {
-    if (hasHydrated && state.tabs.length === 0) {
+    if (hasHydrated && tabs.length === 0) {
       createTab('New Chat');
       const rootId = addMessage(null, 'system', 'You are a helpful assistant. Please interact using the language the user sends for the first time.', 'system');
-      // Automatically generate a user node for immediate interaction
       addMessage(rootId, 'user', '');
     }
-  }, [hasHydrated, state.tabs.length, createTab, addMessage]);
+  }, [hasHydrated, tabs.length, createTab, addMessage]);
 
-  if (!hasHydrated || state.tabs.length === 0) {
+  if (!hasHydrated || tabs.length === 0) {
     return (
       <div className="w-full h-full bg-[#0a0a0a] flex items-center justify-center text-zinc-500 font-mono text-sm">
         Loading workspace...
@@ -159,33 +149,16 @@ function TreeChatFlow() {
                 <CustomSelect
                   value={selectedConfigId}
                   placeholder="Select API Config"
-                  options={apiConfigs.map(c => ({ label: c.name, value: c.id }))}
-                  onChange={cid => {
-                    setSelectedConfigId(cid);
-                    const conf = apiConfigs.find(c => c.id === cid);
-                    if (conf && conf.models.length > 0) {
-                      const firstModel = conf.models[0];
-                      setSelectedModel(firstModel);
-                      setLastConfigSelection(cid, firstModel);
-                    } else {
-                      setLastConfigSelection(cid, '');
-                    }
-                  }}
+                  options={configOptions}
+                  onChange={handleConfigChange}
                 />
 
                 <CustomSelect
                   value={selectedModel}
                   placeholder="Select Model"
                   disabled={!selectedConfigId}
-                  options={
-                    selectedConfigId
-                      ? apiConfigs.find(c => c.id === selectedConfigId)?.models.map(m => ({ label: m, value: m })) || []
-                      : []
-                  }
-                  onChange={model => {
-                    setSelectedModel(model);
-                    if (selectedConfigId) setLastConfigSelection(selectedConfigId, model);
-                  }}
+                  options={modelOptions}
+                  onChange={handleModelChange}
                 />
               </div>
 

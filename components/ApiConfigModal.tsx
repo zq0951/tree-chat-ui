@@ -157,8 +157,7 @@ export default function ApiConfigModal({ isOpen, onClose }: Props) {
       console.error("Failed to fetch models:", error);
       addToast({ type: 'error', message: `Failed to fetch models: ${error.message}` });
     } finally {
-      setIsFetchingModels(true);
-      setTimeout(() => setIsFetchingModels(false), 500);
+      setIsFetchingModels(false);
     }
   };
 
