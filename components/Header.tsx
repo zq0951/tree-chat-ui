@@ -8,9 +8,17 @@ import { Plus, X, MessageSquare, Settings } from 'lucide-react';
 import ApiConfigModal from './ApiConfigModal';
 
 export default function Header() {
-  const state = useStore();
-  const addToast = useToastStore(state => state.addToast);
-  const confirm = useConfirmStore(state => state.confirm);
+  // Use individual selectors to avoid full-store re-renders
+  const tabs = useStore(s => s.tabs);
+  const activeTabId = useStore(s => s.activeTabId);
+  const switchTab = useStore(s => s.switchTab);
+  const createTab = useStore(s => s.createTab);
+  const deleteTab = useStore(s => s.deleteTab);
+  const renameTab = useStore(s => s.renameTab);
+  const importTab = useStore(s => s.importTab);
+
+  const addToast = useToastStore(s => s.addToast);
+  const confirm = useConfirmStore(s => s.confirm);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -26,7 +34,7 @@ export default function Header() {
         const json = JSON.parse(event.target?.result as string);
         if (json.nodes && json.edges) {
           const tabName = file.name.replace(/\.json$/i, '');
-          state.importTab(tabName, json.nodes, json.edges);
+          importTab(tabName, json.nodes, json.edges);
         } else {
           addToast({ type: 'error', message: 'Invalid JSON format for TreeChat' });
         }
@@ -39,7 +47,7 @@ export default function Header() {
   };
 
   const handleExport = () => {
-    const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+    const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return;
     const { nodes, edges, name } = activeTab;
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ nodes, edges }, null, 2));
@@ -100,12 +108,12 @@ export default function Header() {
 
       {/* Tabs Row */}
       <div className="flex h-10 items-end px-4 gap-2 overflow-x-auto custom-scroller bg-black/20 pt-2">
-        {state.tabs.map(tab => (
+        {tabs.map(tab => (
           <div
             key={tab.id}
             onClick={() => {
               if (editingTabId !== tab.id) {
-                state.switchTab(tab.id);
+                switchTab(tab.id);
               }
             }}
             onDoubleClick={() => {
@@ -113,7 +121,7 @@ export default function Header() {
               setEditingName(tab.name || 'Chat');
             }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition-colors border-b-2 whitespace-nowrap
-               ${tab.id === state.activeTabId ? 'bg-[#0a0a0a] border-emerald-500 text-white' : 'bg-transparent border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}
+               ${tab.id === activeTabId ? 'bg-[#0a0a0a] border-emerald-500 text-white' : 'bg-transparent border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}
              `}
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -125,14 +133,14 @@ export default function Header() {
                 onChange={(e) => setEditingName(e.target.value)}
                 onBlur={() => {
                   if (editingName.trim()) {
-                    state.renameTab(tab.id, editingName.trim());
+                    renameTab(tab.id, editingName.trim());
                   }
                   setEditingTabId(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     if (editingName.trim()) {
-                      state.renameTab(tab.id, editingName.trim());
+                      renameTab(tab.id, editingName.trim());
                     }
                     setEditingTabId(null);
                   } else if (e.key === 'Escape') {
@@ -153,7 +161,7 @@ export default function Header() {
                   confirmText: 'Delete Chat',
                 });
                 if (confirmed) {
-                  state.deleteTab(tab.id);
+                  deleteTab(tab.id);
                 }
               }}
               className="p-0.5 rounded hover:bg-white/10 text-zinc-400 hover:text-red-400 ml-1 transition"
@@ -165,7 +173,7 @@ export default function Header() {
         ))}
 
         <button
-          onClick={() => { state.createTab('New Chat'); }}
+          onClick={() => { createTab('New Chat'); }}
           className="flex items-center gap-1 px-3 py-1 rounded text-xs text-zinc-400 hover:text-white hover:bg-white/10 transition-colors ml-2 cursor-pointer shrink-0 mb-1"
           title="New Chat"
         >

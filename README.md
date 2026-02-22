@@ -1,5 +1,7 @@
 # TreeChat (Alpha版)
 
+🌐 **[在线体验 (Live Demo)](https://tree-chat-ui.vercel.app/)** | ⚡ **由 Vercel 驱动持续集成发布**
+
 TreeChat 是一个由 Google Gemini、OpenAI 等多模型（通过 Vercel AI SDK）驱动的试验性、基于节点的对话界面软件。它打破了传统线性的聊天机器人的死板模式，允许用户在一个深度分支、多路径的精美 React Flow 可视化画布中，自由地探索交互、多重推理过程和头脑风暴网络。
 
 ## 核心特性
@@ -23,6 +25,7 @@ TreeChat 是一个由 Google Gemini、OpenAI 等多模型（通过 Vercel AI SDK
 - **树状微状态管理与离线持久化存储驱动:** [Zustand 5](https://zustand-demo.pmnd.rs) + 高性能原生 IndexedDB 桥接 `idb-keyval` 中间件（内置防抖写入与 `beforeunload` 数据安全刷入）
 - **高自由度前端富文本解码器:** `react-markdown` + `remark-gfm` 解析库
 - **字体方案:** Google [Geist](https://vercel.com/font) 字体家族 (Sans + Mono)
+- **测试框架:** [Vitest](https://vitest.dev) + `@testing-library/react` + `@testing-library/jest-dom`
 
 ## 项目目录结构
 
@@ -35,17 +38,38 @@ tree_chat/
 │   └── globals.css             # 全局样式 + React Flow 深色主题覆写
 ├── components/                 # React 组件
 │   ├── TreeChat.tsx            # 主画布组件（ReactFlow 容器 + 合并栏）
-│   ├── MessageNode.tsx         # 核心：消息卡片节点（含 CustomSelect 组件）
+│   ├── MessageNode.tsx         # 消息卡片节点容器（组装子组件）
+│   ├── node/                   # MessageNode 子组件
+│   │   ├── NodeHeader.tsx      # 节点顶栏（角色、模型信息、工具按钮）
+│   │   ├── NodeContent.tsx     # 内容区（Markdown/纯文本、错误、加载状态）
+│   │   ├── NodeFooter.tsx      # 底栏（生成/分支/重试按钮）
+│   │   ├── ImageGallery.tsx    # 图片缩略图网格
+│   │   └── ImagePreviewOverlay.tsx  # 全屏图片预览遮罩
 │   ├── Header.tsx              # 顶栏：Tab 管理 + 导入/导出
 │   ├── ApiConfigModal.tsx      # API 密钥配置弹窗（BYOK 管理）
 │   ├── ConfirmDialog.tsx       # 全局确认弹窗
-│   └── Toaster.tsx             # 全局浮动通知
+│   ├── Toaster.tsx             # 全局浮动通知
+│   └── ui/
+│       └── CustomSelect.tsx    # 可复用的下拉选择器组件
 ├── hooks/                      # 自定义 React Hooks
 │   └── useApiConfigSelection.ts # API 配置+模型选择逻辑（共享 Hook）
-├── store/                      # Zustand 状态管理
-│   ├── useStore.ts             # 核心状态（节点/边/Tab/API配置/AI生成）
+├── store/                      # Zustand 模块化状态管理
+│   ├── useStore.ts             # 组合入口：合并所有 Slice + 持久化
+│   ├── types.ts                # 类型定义（AppNode, Tab, AppState 等）
+│   ├── helpers.ts              # 共享工具函数与常量
+│   ├── persistence.ts          # IndexedDB 持久化引擎（防抖 + 安全刷入）
+│   ├── tabSlice.ts             # Tab 管理 Slice
+│   ├── nodeSlice.ts            # 节点/边 CRUD Slice
+│   ├── aiSlice.ts              # AI 响应生成 + 合并 Slice
+│   ├── configSlice.ts          # API 配置 Slice
 │   ├── useConfirmStore.ts      # 确认弹窗 Promise 状态
 │   └── useToastStore.ts        # 通知队列状态
+├── __tests__/                  # 单元测试（Vitest）
+│   ├── helpers/createTestStore.ts  # 测试专用 Store 工厂
+│   ├── tabSlice.test.ts        # Tab 管理测试
+│   ├── nodeSlice.test.ts       # 节点操作测试
+│   ├── aiSlice.test.ts         # AI 逻辑测试
+│   └── configSlice.test.ts     # API 配置测试
 ├── lib/                        # 类型定义与工具函数
 │   └── types.ts                # TypeScript 类型（MessageRole, ApiConfig 等）
 └── vision_document.md          # 产品愿景文档
@@ -67,7 +91,14 @@ tree_chat/
 
    稍等片刻后，用浏览器打开 [http://localhost:3000](http://localhost:3000) 即可开始俯瞰你的画布！
 
-3. **生产构建**
+3. **运行测试**
+
+   ```bash
+   npm test            # 运行所有测试
+   npm run test:watch  # 监听模式
+   ```
+
+4. **生产构建**
    ```bash
    npm run build
    npm run start
@@ -86,7 +117,7 @@ tree_chat/
 
 ### 代码组织原则
 
-- **状态管理**：所有业务状态集中在 `store/useStore.ts`，使用 Zustand 单 Store 模式。
+- **状态管理**：所有业务状态通过 Zustand **模块化 Slice 架构** 管理，分为 `tabSlice`（标签页）、`nodeSlice`（节点/边）、`aiSlice`（AI 生成）、`configSlice`（API 配置）四个独立模块，由 `useStore.ts` 统一组合。
 - **共享逻辑**：跨组件的可复用逻辑抽取至 `hooks/` 目录下的自定义 Hook。
 - **组件职责**：每个组件只关注渲染逻辑，业务操作委托给 Store Actions。
 - **样式管理**：全局样式统一维护在 `globals.css`，组件内不使用内联 `<style>` 标签。
