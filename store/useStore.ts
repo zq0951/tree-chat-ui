@@ -46,7 +46,7 @@ export type AppState = {
   addMessageImages: (id: string, imageUrls: string[]) => void;
   removeMessageImage: (id: string, index: number) => void;
   deleteMessageNode: (id: string) => void;
-  mergeNodes: (nodeIds: string[]) => string;
+  mergeNodes: (nodeIds: string[], configId?: string, model?: string) => string;
   getConversationPath: (nodeId: string) => { role: string; content: string; imageUrls?: string[] }[];
   generateAIResponse: (userNodeId: string, configId?: string, model?: string) => Promise<void>;
 
@@ -288,7 +288,7 @@ export const useStore = create<AppState>()(
           edges: tab.edges.filter((e) => e.source !== id && e.target !== id)
         }));
       },
-      mergeNodes: (nodeIds: string[]) => {
+      mergeNodes: (nodeIds: string[], configId?: string, model?: string) => {
         const id = uuidv4();
         const activeTab = get().tabs.find(t => t.id === get().activeTabId);
         if (!activeTab) return id;
@@ -328,10 +328,12 @@ export const useStore = create<AppState>()(
           style: { width: 440 },
           data: {
             id,
-            role: 'user',
-            content: combinedContent,
+            role: 'system',
+            content: '*AI is thinking and compressing these contexts...*',
             imageUrls: combinedImages,
             timestamp: Date.now(),
+            configId,
+            model,
           },
           dragHandle: '.custom-drag-handle',
         };
@@ -350,6 +352,83 @@ export const useStore = create<AppState>()(
           nodes: [...nodes.map(n => ({ ...n, selected: false })), { ...newNode, selected: true }],
           edges: [...edges, ...newEdges]
         }));
+
+        // Kick off async AI compression
+        setTimeout(async () => {
+          const { updateMessageNode, updateMessageError, apiConfigs } = get();
+
+          let targetModel = model;
+          let targetConfig = apiConfigs.find(c => c.id === configId);
+
+          // Fallback if not provided or valid
+          if (!targetConfig || !targetModel) {
+            const { lastSelectedConfigId, lastSelectedModel } = get();
+            targetModel = lastSelectedModel || 'gemini-3-flash-preview';
+            targetConfig = apiConfigs.find(c => c.id === lastSelectedConfigId);
+          }
+
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (targetConfig) {
+            headers['X-Api-Key'] = targetConfig.apiKey;
+            headers['X-Provider'] = targetConfig.provider;
+            if (targetConfig.baseUrl) headers['X-Base-Url'] = targetConfig.baseUrl;
+            headers['X-Model'] = targetModel!;
+          }
+
+          const formattedMessages = [
+            {
+              role: 'system',
+              content: 'You are a highly professional logic summarization AI. Your task is to merge and compress a set of contexts provided by the user from different branch discussions, extracting the core points and summaries with logic and coherence. This will be used as a general upstream context for further deduction or questioning. Keep only the core logic and critical intent, avoiding rambling or casual chat. Output ONLY the compressed context directly. Do not include introductory phrases.'
+            },
+            {
+              role: 'user',
+              content: `Please compress, summarize, and fuse the following multiple contexts into a single coherent text:\n\n${combinedContent}`
+            }
+          ];
+
+          try {
+            const response = await fetch('/api/chat', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ messages: formattedMessages }),
+            });
+
+            if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(errText);
+            }
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let done = false;
+            let fullContent = "";
+
+            while (!done) {
+              const { value, done: doneReading } = await reader.read();
+              done = doneReading;
+              if (value) {
+                const chunkValue = decoder.decode(value, { stream: true });
+                fullContent += chunkValue;
+                updateMessageNode(id, fullContent);
+              }
+            }
+
+            if (fullContent.includes('[API Error]:')) {
+              const parts = fullContent.split('[API Error]:');
+              const actualContent = parts[0].trim();
+              const errorMessage = parts[1].trim();
+
+              updateMessageNode(id, actualContent);
+              throw new Error(errorMessage);
+            }
+          } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : "AI 合并压缩失败";
+            updateMessageError(id, errMsg);
+            // Fallback to literal combined text if compression failed
+            updateMessageNode(id, `*(AI 压缩失败，原文本已直接拼接)*\n\n${combinedContent}`);
+          }
+        }, 0);
 
         return id;
       },

@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { AppNode, useStore } from '@/store/useStore';
 import { ApiConfig } from '@/lib/types';
 
-function CustomSelect({
+export function CustomSelect({
   value,
   options,
   onChange,

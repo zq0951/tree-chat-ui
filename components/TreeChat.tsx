@@ -8,6 +8,7 @@ import {
   Background,
   ReactFlowProvider,
   BackgroundVariant,
+  SelectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '@/store/useStore';
@@ -18,16 +19,44 @@ const nodeTypes = {
   messageNode: MessageNode,
 };
 
+// Update store references at type definition as well
+import { CustomSelect } from './MessageNode';
+
 function TreeChatFlow() {
   const state = useStore();
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
   const nodes = activeTab?.nodes || [];
   const edges = activeTab?.edges || [];
-  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes } = state;
+  const { onNodesChange, onEdgesChange, onConnect, addMessage, createTab, mergeNodes, apiConfigs, lastSelectedConfigId, lastSelectedModel, setLastConfigSelection } = state;
 
   const selectedNodeIds = nodes.filter(n => n.selected).map(n => n.id);
 
   const [hasHydrated, setHasHydrated] = React.useState(false);
+
+  // Local state for merge config
+  const [selectedConfigId, setSelectedConfigId] = React.useState<string>('');
+  const [selectedModel, setSelectedModel] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (apiConfigs.length > 0) {
+      const savedConfigIdx = apiConfigs.findIndex(c => c.id === lastSelectedConfigId);
+      if (savedConfigIdx !== -1) {
+        setSelectedConfigId(lastSelectedConfigId!);
+        const configModels = apiConfigs[savedConfigIdx].models;
+        if (lastSelectedModel && configModels.includes(lastSelectedModel)) {
+          setSelectedModel(lastSelectedModel);
+        } else {
+          setSelectedModel(configModels[0] || '');
+        }
+      } else if (!selectedConfigId) {
+        setSelectedConfigId(apiConfigs[0].id);
+        setSelectedModel(apiConfigs[0].models[0]);
+      }
+    } else {
+      setSelectedConfigId('');
+      setSelectedModel('');
+    }
+  }, [apiConfigs, selectedConfigId, lastSelectedConfigId, lastSelectedModel]);
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -72,6 +101,9 @@ function TreeChatFlow() {
         minZoom={0.1}
         maxZoom={4}
         colorMode="dark"
+        selectionMode={SelectionMode.Partial}
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode="Shift"
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -104,15 +136,52 @@ function TreeChatFlow() {
 
         {selectedNodeIds.length > 1 && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 fade-in duration-200">
-            <div className="flex items-center gap-4 px-6 py-3 bg-indigo-950/80 backdrop-blur-md rounded-2xl border border-indigo-500/30 shadow-2xl">
-              <span className="text-sm text-indigo-200 font-medium">{selectedNodeIds.length} Prompt Nodes Selected</span>
+            <div className="flex items-center gap-3 px-6 py-4 bg-indigo-950/80 backdrop-blur-xl rounded-2xl border border-indigo-500/30 shadow-2xl">
+              <span className="text-sm text-indigo-200 font-medium whitespace-nowrap">{selectedNodeIds.length} Nodes Selected</span>
               <div className="w-px h-6 bg-indigo-500/30"></div>
+
+              <div className="flex items-center gap-2 min-w-[280px]">
+                <CustomSelect
+                  value={selectedConfigId}
+                  placeholder="Select API Config"
+                  options={apiConfigs.map(c => ({ label: c.name, value: c.id }))}
+                  onChange={cid => {
+                    setSelectedConfigId(cid);
+                    const conf = apiConfigs.find(c => c.id === cid);
+                    if (conf && conf.models.length > 0) {
+                      const firstModel = conf.models[0];
+                      setSelectedModel(firstModel);
+                      setLastConfigSelection(cid, firstModel);
+                    } else {
+                      setLastConfigSelection(cid, '');
+                    }
+                  }}
+                />
+
+                <CustomSelect
+                  value={selectedModel}
+                  placeholder="Select Model"
+                  disabled={!selectedConfigId}
+                  options={
+                    selectedConfigId
+                      ? apiConfigs.find(c => c.id === selectedConfigId)?.models.map(m => ({ label: m, value: m })) || []
+                      : []
+                  }
+                  onChange={model => {
+                    setSelectedModel(model);
+                    if (selectedConfigId) setLastConfigSelection(selectedConfigId, model);
+                  }}
+                />
+              </div>
+
+              <div className="w-px h-6 bg-indigo-500/30"></div>
+
               <button
-                onClick={() => mergeNodes(selectedNodeIds)}
-                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer shadow-lg shadow-indigo-500/20"
+                onClick={() => mergeNodes(selectedNodeIds, selectedConfigId || undefined, selectedModel || undefined)}
+                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer shadow-lg shadow-indigo-500/20 whitespace-nowrap"
               >
                 <Layers className="w-4 h-4" />
-                <span>Merge into single User Input</span>
+                <span>AI Merge Docs</span>
               </button>
             </div>
           </div>
